@@ -73,16 +73,16 @@ vi.mock("next/headers", () => ({
 
 function makeRequest(
   url: string,
-  init?: RequestInit & { json?: unknown }
+  init?: { method?: string; headers?: Record<string, string>; json?: unknown }
 ): NextRequest {
-  const { json: jsonBody, ...rest } = init ?? {};
+  const { json: jsonBody, method, headers } = init ?? {};
   const body = jsonBody !== undefined ? JSON.stringify(jsonBody) : undefined;
   return new NextRequest(new URL(url, "http://localhost:3000"), {
-    ...rest,
+    method,
     body,
     headers: {
       "content-type": "application/json",
-      ...(rest.headers as Record<string, string>),
+      ...headers,
     },
   });
 }
