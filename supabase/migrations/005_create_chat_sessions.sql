@@ -8,8 +8,7 @@ CREATE TABLE chat_sessions (
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 
--- Indexes
-CREATE INDEX idx_chat_sessions_session_token ON chat_sessions (session_token);
+-- Indexes (session_token already has a unique index from the UNIQUE constraint)
 CREATE INDEX idx_chat_sessions_updated_at ON chat_sessions (updated_at);
 
 -- Updated_at trigger
