@@ -27,12 +27,15 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.4",
     "@playwright/test": "^1",
+    "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "^15",
+    "jsdom": "^28.1.0",
     "typescript": "^5",
     "vitest": "^2"
   }
