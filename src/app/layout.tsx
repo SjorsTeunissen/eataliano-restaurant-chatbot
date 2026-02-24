@@ -1,10 +1,25 @@
 import type { Metadata } from "next";
+import { Oswald, Montserrat } from "next/font/google";
 import "./globals.css";
 
+const oswald = Oswald({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-oswald",
+  weight: ["400", "500", "600", "700"],
+});
+
+const montserrat = Montserrat({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-montserrat",
+  weight: ["400", "500", "600", "700"],
+});
+
 export const metadata: Metadata = {
-  title: "AIboy — Claude Code Telegram Notifications",
+  title: "Eataliano — Italiaans Restaurant in Arnhem & Huissen",
   description:
-    "Get notified on Telegram when Claude Code finishes a task.",
+    "Authentieke Italiaanse pizza, pasta en meer. Bestel online of reserveer een tafel bij Eataliano in Arnhem of Huissen.",
 };
 
 export default function RootLayout({
@@ -13,9 +28,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className="min-h-screen bg-gray-950 text-gray-100 antialiased">
+    <html lang="nl" className={`${oswald.variable} ${montserrat.variable}`}>
+      <body>
         {children}
+        {/* ChatToggle: added by SER-65 (Chatbot UI) */}
       </body>
     </html>
   );
