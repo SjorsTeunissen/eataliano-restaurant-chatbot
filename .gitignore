@@ -38,8 +38,5 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# local dev storage
-/data/users.json
-
-# planning
-.planning/
+# worktrees
+.worktrees/
