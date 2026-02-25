@@ -1,259 +1,295 @@
-# SER-67: Admin Dashboard & Menu Management — Implementation Plan
+# SER-69: Admin Settings & Location Management — Implementation Plan
 
-## Summary
+## Overview
 
-Build the admin dashboard overview page (today's stats) and the full menu management interface (list items by category, add/edit/delete items, manage categories, toggle availability). This maps to Task 14 in the technical spec.
+Build the admin settings page at `/admin/settings` for managing Eataliano's two restaurant locations (Arnhem, Huissen). The page allows editing location details, weekly opening hours, and delivery zones. All changes persist directly to the Supabase `locations` table via the browser client (authenticated admin has RLS write access).
 
 ## Branch & Worktree
 
-- Branch: `ser-67`
-- Worktree: `.worktrees/ser-67`
+- Branch: `ser-69-admin-settings-location-management`
+- Worktree: `.worktrees/ser-69`
 - Base: `main`
 
-## Dependencies (all merged)
+## Existing Infrastructure
 
-- **SER-56**: UI Components — `Button`, `Input`, `Card`, `Badge`, `Modal` at `src/components/ui/`
-- **SER-58**: Menu API CRUD — endpoints at `src/app/api/menu/` (items + categories CRUD)
-- **SER-66**: Admin Auth — middleware at `src/middleware.ts`, login at `src/app/auth/login/`, Supabase session, logout at `POST /api/auth/logout`
+- **Admin layout**: `src/app/admin/layout.tsx` (from SER-67) — sidebar with "Instellingen" nav item pointing to `/admin/settings`
+- **Admin auth**: SER-66 — Supabase Auth session, middleware protecting `/admin` routes
+- **UI components**: `src/components/ui/` — Button, Input, Card, Badge, Modal
+- **Admin components**: `src/components/admin/` — StatCard, MenuItemForm, CategoryForm (SER-67 patterns)
+- **Supabase browser client**: `src/lib/supabase/client.ts` — `createClient()` for reads/writes
+- **Design tokens**: `src/app/globals.css` — colors (oven, fiamma, basilico, crema), fonts (Oswald headlines, Montserrat body), spacing, shadows
+- **Database**: `locations` table with `opening_hours` JSONB (Dutch day names), `delivery_zones` JSONB (string array), RLS policies allowing authenticated UPDATE
 
-## Existing Patterns to Follow
+## Database Schema (existing — no changes)
 
-- **Language**: Dutch for user-facing text (e.g. "Inloggen", "E-mailadres")
-- **Client components**: `"use client"` directive, `useState` for local state, `createClient()` from `@/lib/supabase/client` for browser-side Supabase
-- **API calls**: `fetch("/api/...")` from client components for mutations; Supabase browser client for direct queries
-- **Design tokens**: Tailwind v4 `@theme` tokens — `bg-fiamma`, `text-oven`, `text-crema`, `font-headline`, `font-body`, `rounded-base`, `shadow-warm-md`, `p-space-7`
-- **UI components**: Import from `@/components/ui` — `Button` (primary/secondary/ghost, sm/md/lg, isLoading), `Input` (label, error), `Card`, `Badge` (default/success/warning/error), `Modal` (isOpen, onClose, title)
-- **Auth pattern in client**: `createClient()` from `@/lib/supabase/client` + `supabase.auth.getUser()`
-- **Test pattern**: Vitest + RTL, `import { describe, it, expect, vi } from "vitest"`, co-located `__tests__/` directories, `@testing-library/react` + `@testing-library/user-event`
-- **Container pattern**: `mx-auto max-w-7xl px-4 md:px-6`
-- **Icons**: `lucide-react` (e.g. `Menu`, `X`, `MapPin`, `Phone`, `Clock`)
+Table: `locations` (from `supabase/migrations/001_create_locations.sql`)
 
-## Files to Create
+```
+id            UUID PK
+name          TEXT NOT NULL       -- "Arnhem" / "Huissen"
+address       TEXT NOT NULL
+phone         TEXT NOT NULL
+email         TEXT
+opening_hours JSONB NOT NULL      -- keyed by Dutch day names
+delivery_zones JSONB              -- array of postal code strings
+is_active     BOOLEAN
+created_at    TIMESTAMPTZ
+updated_at    TIMESTAMPTZ         -- auto-updated via trigger
+```
 
-### 1. `src/app/admin/layout.tsx` — Admin Layout with Sidebar Navigation
+### Opening Hours JSONB Structure (from seed data)
 
-**Purpose**: Admin shell wrapping all `/admin/*` pages with sidebar nav and top bar.
+```json
+{
+  "maandag":   { "open": "16:00", "close": "22:00" },
+  "dinsdag":   { "open": "16:00", "close": "22:00" },
+  "woensdag":  { "open": "16:00", "close": "22:00" },
+  "donderdag": { "open": "16:00", "close": "22:00" },
+  "vrijdag":   { "open": "16:00", "close": "23:00" },
+  "zaterdag":  { "open": "15:00", "close": "23:00" },
+  "zondag":    { "open": "15:00", "close": "22:00" }
+}
+```
 
-**Details**:
-- Client component (`"use client"`) for navigation state + logout handling
-- **Sidebar** (left, 256px wide):
-  - `bg-oven` dark background, full-height
-  - Logo/branding: "Eataliano Admin" in `font-headline text-crema`
-  - Nav links using `usePathname()` for active state:
-    - Dashboard (`/admin`) — `LayoutDashboard` icon
-    - Menu (`/admin/menu`) — `UtensilsCrossed` icon
-    - Bestellingen (`/admin/orders`) — `ShoppingBag` icon (future SER-68)
-    - Reserveringen (`/admin/reservations`) — `CalendarDays` icon (future SER-68)
-    - Instellingen (`/admin/settings`) — `Settings` icon (future SER-69)
-  - Active link: `bg-fiamma/20 text-fiamma`, inactive: `text-crema/70 hover:text-crema hover:bg-white/5`
-- **Top bar** (right of sidebar):
-  - Logout button (calls `POST /api/auth/logout`, then `router.push("/auth/login")`)
-  - Mobile hamburger toggle for sidebar
-- **Responsive**: sidebar hidden on mobile, toggled via hamburger; overlay on mobile
-- **Content area**: `flex-1` with `bg-crema` background, padding
+The seed data does NOT include a `closed` field. The implementation extends this to support `{ "open": "...", "close": "...", "closed": false }` where `closed: true` means the day is not operational. When `closed` is absent or `false`, the location is open with the given times.
 
-### 2. `src/components/admin/StatCard.tsx` — Dashboard Stat Card
+### Delivery Zones JSONB Structure (from seed data)
 
-**Purpose**: Reusable card for dashboard stats.
+```json
+["6811", "6812", "6813", ...]
+```
 
-**Props**: `title: string`, `value: string | number`, `subtitle?: string`, `icon: React.ReactNode`
+A flat array of postal code strings.
 
-**Details**:
-- Uses `Card` component as wrapper
-- Icon rendered at 24px in `text-fiamma`
-- Value in large `font-headline text-2xl` font
-- Title in `text-sm text-oven/60 font-body`
-- Subtitle in `text-xs text-oven/40`
+### RLS Access (from `supabase/migrations/007_rls_policies.sql`)
 
-### 3. `src/app/admin/page.tsx` — Dashboard Overview
+- `locations_select_public` — anyone can read
+- `locations_update_authenticated` — only authenticated users can UPDATE
 
-**Purpose**: Today's quick stats overview.
+The admin's browser client session has the `authenticated` role (via SER-66 auth), so UPDATE queries pass RLS without API routes.
 
-**Details**:
-- Client component, fetches data on mount with `useEffect`
-- Uses Supabase browser client for authenticated queries
-- Computes today's date in Amsterdam timezone for filtering
-- **4 stat cards** in responsive grid (2x2 on desktop, stacked on mobile):
-  - "Bestellingen Vandaag" — count of today's orders + total revenue formatted as EUR
-  - "Reserveringen Vandaag" — count of today's reservations
-  - "Menu Items" — count of active menu items
-  - "Categorieen" — count of active categories
-- Loading state with skeleton/placeholder while fetching
-- Quick action: "Beheer Menu" button linking to `/admin/menu`
+## Files to Create/Modify
 
-### 4. `src/components/admin/MenuItemForm.tsx` — Menu Item Add/Edit Form
+### 1. `src/app/admin/settings/page.tsx` (CREATE)
 
-**Purpose**: Modal form for creating and editing menu items.
+Replace the `.gitkeep` placeholder. `'use client'` page that:
+- Fetches all locations from Supabase on mount via `createClient().from('locations').select('*').order('name')`
+- Shows loading skeleton with `animate-pulse` while fetching
+- Renders one Card per location containing three sub-sections: LocationForm, OpeningHoursEditor, DeliveryZoneEditor
+- Each sub-section has its own save button — users save sections independently
+- After successful save, re-fetches locations to confirm persistence
+- Success/error feedback shown per section
 
-**Props**: `item?: MenuItem | null` (null = create mode), `categories: Category[]`, `onSave: () => void`, `onCancel: () => void`
+**Pattern reference:** `src/app/admin/menu/page.tsx` (SER-67) — same `'use client'` + `useState` + `useEffect` + `useCallback` + `createClient()` pattern.
 
-**Fields**:
-- `name` — `Input` component, required
-- `description` — `<textarea>` styled to match Input
-- `price` — `Input` type="number" step="0.01", required
-- `category_id` — `<select>` dropdown, required
-- `allergens` — `Input`, comma-separated text (parsed to string array on submit)
-- `dietary_labels` — `Input`, comma-separated text (parsed to string array)
-- `image_url` — `Input`, optional URL
-- `is_available` — checkbox
-- `is_featured` — checkbox
-- `sort_order` — `Input` type="number"
+### 2. `src/components/admin/LocationForm.tsx` (CREATE)
 
-**Behavior**:
-- Pre-fills fields when `item` prop provided (edit mode)
-- Client-side validation: name non-empty, price > 0, category selected
-- Submit: `POST /api/menu` (create) or `PATCH /api/menu/{id}` (update)
-- Shows `Button isLoading` during save
-- Calls `onSave()` on success for parent to refresh list
+Editable location details component.
 
-### 5. `src/components/admin/CategoryForm.tsx` — Category Add/Edit Form
+**Props:**
+```tsx
+interface LocationFormProps {
+  location: Location;
+  onSaved: () => void;
+}
+```
 
-**Purpose**: Modal form for creating and editing categories.
+**Fields (controlled via useState):**
+- `name` — Input, label "Naam", required
+- `address` — Input, label "Adres", required
+- `phone` — Input, label "Telefoon", required
+- `email` — Input, label "E-mail", optional (validate format if provided)
 
-**Props**: `category?: Category | null`, `onSave: () => void`, `onCancel: () => void`
+**Save:** Direct Supabase update via browser client:
+```tsx
+const supabase = createClient();
+await supabase.from('locations').update({ name, address, phone, email: email || null }).eq('id', location.id);
+```
 
-**Fields**: `name` (required), `description` (optional textarea), `sort_order` (number), `is_active` (checkbox)
+**Feedback:** Success banner in `text-basilico`, error in `text-red-500`.
 
-**Behavior**:
-- Submit: `POST /api/menu/categories` (create) or `PATCH /api/menu/categories/{id}` (update)
-- Validation: name non-empty
+**Pattern reference:** `src/components/admin/MenuItemForm.tsx` — same controlled inputs, validate(), handleSubmit, Button with isLoading, Input with label/error.
 
-### 6. `src/app/admin/menu/page.tsx` — Menu Management Page
+### 3. `src/components/admin/OpeningHoursEditor.tsx` (CREATE)
 
-**Purpose**: Full CRUD interface for menu items and categories.
+Weekly schedule editor.
 
-**Details**:
-- Client component with two tabs: "Items" | "Categorieen"
-- **Items tab**:
-  - Fetch ALL items (including `is_available=false`) via Supabase browser client: `supabase.from("menu_items").select("*, category:menu_categories(*)").order("sort_order")`
-  - Fetch all categories for the filter/form dropdown
-  - Display items grouped by category in collapsible sections
-  - Each item row in a `Card`:
-    - Name (font-headline), price (formatted EUR), category `Badge`
-    - `is_available` toggle switch — optimistic update via `PATCH /api/menu/{id}`
-    - Edit button (pencil icon) — opens `Modal` with `MenuItemForm`
-    - Delete button (trash icon) — confirmation dialog, then `DELETE /api/menu/{id}`
-  - "Nieuw Item" `Button` above the list — opens `Modal` with empty `MenuItemForm`
-  - Search input at top to filter items by name
-- **Categories tab**:
-  - Fetch all categories via Supabase browser client (including `is_active=false`)
-  - Each row: name, description snippet, sort_order, `is_active` badge
-  - Edit button — opens `Modal` with `CategoryForm`
-  - "Nieuwe Categorie" `Button` — opens `Modal` with empty `CategoryForm`
-- Refresh data after any CRUD operation
+**Props:**
+```tsx
+interface OpeningHoursEditorProps {
+  locationId: string;
+  openingHours: OpeningHours;
+  onSaved: () => void;
+}
+```
 
-### 7. `src/components/admin/index.ts` — Barrel Export
+**Types:**
+```tsx
+interface DayHours {
+  open: string;
+  close: string;
+  closed?: boolean;
+}
+type DayName = 'maandag' | 'dinsdag' | 'woensdag' | 'donderdag' | 'vrijdag' | 'zaterdag' | 'zondag';
+type OpeningHours = Record<DayName, DayHours>;
+```
 
-Export: `StatCard`, `MenuItemForm`, `CategoryForm`
+**Constants:**
+```tsx
+const DAYS: { key: DayName; label: string }[] = [
+  { key: 'maandag', label: 'Maandag' },
+  { key: 'dinsdag', label: 'Dinsdag' },
+  { key: 'woensdag', label: 'Woensdag' },
+  { key: 'donderdag', label: 'Donderdag' },
+  { key: 'vrijdag', label: 'Vrijdag' },
+  { key: 'zaterdag', label: 'Zaterdag' },
+  { key: 'zondag', label: 'Zondag' },
+];
+```
 
-### 8. Unit Tests
+**UI:** 7 rows, each with: day label | `<input type="time">` for open | dash | `<input type="time">` for close | "Gesloten" checkbox. When checked, time inputs disabled/grayed. Responsive: stack on mobile, row on desktop.
 
-#### `src/components/admin/__tests__/StatCard.test.tsx`
-- Renders title, value, subtitle
-- Renders icon
-- Handles missing subtitle gracefully
+**Validation:** Close time must be after open time for non-closed days. Inline error per row.
 
-#### `src/components/admin/__tests__/MenuItemForm.test.tsx`
-- Renders all form fields
-- Shows empty fields in create mode
-- Pre-fills fields in edit mode
-- Validates required fields (name, price, category)
-- Calls onCancel when cancel button clicked
-- Shows loading state on submit
+**Save:** `supabase.from('locations').update({ opening_hours: hours }).eq('id', locationId)`
 
-#### `src/components/admin/__tests__/CategoryForm.test.tsx`
-- Renders form fields
-- Pre-fills in edit mode
-- Validates name required
-- Calls onCancel
+**Time input styling:** Match existing Input component styles: `rounded-base border border-oven/20 px-3 py-2 text-base font-body text-oven focus:outline-none focus:ring-2 focus:border-fiamma focus:ring-fiamma/20`
 
-#### `src/app/admin/__tests__/page.test.tsx`
-- Renders dashboard heading
-- Renders 4 stat cards
-- Mocks Supabase client to return test data
+### 4. `src/components/admin/DeliveryZoneEditor.tsx` (CREATE)
 
-#### `src/app/admin/menu/__tests__/page.test.tsx`
-- Renders menu management heading
-- Shows items tab by default
-- Switches to categories tab
-- Renders "Nieuw Item" button
-- Mocks Supabase client to return test items and categories
+Add/remove delivery zones.
 
-### 9. E2E Test: `e2e/admin-menu.spec.ts`
+**Props:**
+```tsx
+interface DeliveryZoneEditorProps {
+  locationId: string;
+  deliveryZones: string[];
+  onSaved: () => void;
+}
+```
 
-**Scenarios**:
-1. Unauthenticated user visiting `/admin` is redirected to `/auth/login`
-2. Admin logs in and sees dashboard with stat cards
-3. Admin navigates to `/admin/menu` via sidebar
-4. Admin sees menu items listed
-5. Admin clicks "Nieuw Item" and sees the form modal
-6. Admin fills form and creates a new item
-7. Admin edits an existing item
-8. Admin toggles item availability
-9. Admin switches to categories tab and sees categories
+**UI:**
+- Current zones as removable chips (Badge component + X icon button)
+- Text input + "Toevoegen" button to add new zone
+- "Opslaan" button at bottom
 
-## API Surface (all existing, no modifications)
+**Behavior:**
+- Add: trim input, prevent empty/duplicate, add to local state
+- Remove: filter out from local state
+- Changes are local until "Opslaan" clicked
 
-| Method | Endpoint | Auth | Purpose |
-|--------|----------|------|---------|
-| GET | `/api/menu` | Public | List active items (used for stats count) |
-| POST | `/api/menu` | Admin | Create menu item |
-| PATCH | `/api/menu/[id]` | Admin | Update menu item |
-| DELETE | `/api/menu/[id]` | Admin | Soft-delete item (`is_available=false`) |
-| GET | `/api/menu/categories` | Public | List active categories |
-| POST | `/api/menu/categories` | Admin | Create category |
-| PATCH | `/api/menu/categories/[id]` | Admin | Update category |
-| GET | `/api/orders` | Admin | List orders (filtered by date for stats) |
-| GET | `/api/reservations` | Admin | List reservations (filtered by date for stats) |
-| POST | `/api/auth/logout` | Any | Sign out and redirect |
+**Save:** `supabase.from('locations').update({ delivery_zones: zones }).eq('id', locationId)`
 
-**Key note on admin menu listing**: The public `GET /api/menu` only returns `is_available=true` items. For the admin menu page, we query Supabase directly from the browser client (authenticated) to get ALL items including unavailable ones. This avoids modifying the public API.
+### 5. `src/components/admin/index.ts` (MODIFY)
 
-## Design Decisions
+Add exports for the three new components:
+```tsx
+export { LocationForm } from "./LocationForm";
+export { OpeningHoursEditor } from "./OpeningHoursEditor";
+export { DeliveryZoneEditor } from "./DeliveryZoneEditor";
+```
 
-1. **Direct Supabase browser client for admin queries**: The admin menu page needs all items including unavailable ones. Rather than adding query params to the public API, we use the authenticated Supabase browser client directly. The admin is already authenticated via Supabase Auth.
+## UI & Styling
 
-2. **Tab-based menu management**: Items and categories on the same page with tab switching. Keeps navigation minimal and provides the "full menu management interface" in one view.
+All styling follows established patterns from `globals.css` tokens and existing SER-67 components:
 
-3. **Modal forms for CRUD**: Using the existing `Modal` component for add/edit forms. Users stay on the same page, reducing context switching.
+- **Page heading:** `<h1 className="font-headline text-2xl text-oven mb-6">Instellingen</h1>`
+- **Location heading:** `<h2 className="font-headline text-xl text-oven mb-4">{location.name}</h2>`
+- **Section heading:** `<h3 className="font-headline text-lg text-oven mb-3">`
+- **Cards:** `<Card>` component (white bg, subtle shadow, rounded-base)
+- **Form inputs:** `<Input>` component with `label` and `error` props
+- **Time inputs:** Native `<input type="time">` with matching border/focus styles
+- **Closed toggle:** Checkbox with label "Gesloten" (same pattern as MenuItemForm checkboxes)
+- **Zone chips:** `<Badge>` with X icon to remove
+- **Save buttons:** `<Button>` primary (fiamma) with `isLoading`
+- **Success:** `text-basilico` text
+- **Error:** `text-red-500` text with `role="alert"`
+- **Spacing:** `space-y-8` between location cards, `space-y-6` between sections within a card, `space-y-4` within forms
+- **Dutch labels:** Naam, Adres, Telefoon, E-mail, Openingstijden, Bezorggebieden, Gesloten, Opslaan, Toevoegen
 
-4. **Optimistic availability toggle**: When toggling `is_available`, update the UI immediately, then call `PATCH /api/menu/{id}` in the background. Revert on error with a toast-style error message.
+## Page Layout Wireframe
 
-5. **Sidebar navigation pattern**: Dark sidebar (`bg-oven`) with light text (`text-crema`), active state uses `text-fiamma`. This is a standard admin dashboard pattern that clearly separates the admin area from the public site.
+```
+┌──────────────────────────────────────────────────┐
+│ h1: Instellingen                                 │
+│                                                  │
+│ ┌─── Card: Arnhem ────────────────────────────┐  │
+│ │ h2: Arnhem                                  │  │
+│ │                                             │  │
+│ │ h3: Locatiegegevens                         │  │
+│ │ ┌─────────────────────────────────────────┐ │  │
+│ │ │ Naam:     [____________]                │ │  │
+│ │ │ Adres:    [____________]                │ │  │
+│ │ │ Telefoon: [____________]                │ │  │
+│ │ │ E-mail:   [____________]                │ │  │
+│ │ │                        [Opslaan]        │ │  │
+│ │ └─────────────────────────────────────────┘ │  │
+│ │                                             │  │
+│ │ h3: Openingstijden                          │  │
+│ │ ┌─────────────────────────────────────────┐ │  │
+│ │ │ Maandag    [16:00] - [22:00]  □ Gesloten│ │  │
+│ │ │ Dinsdag    [16:00] - [22:00]  □ Gesloten│ │  │
+│ │ │ ...                                     │ │  │
+│ │ │ Zondag     [15:00] - [22:00]  □ Gesloten│ │  │
+│ │ │                        [Opslaan]        │ │  │
+│ │ └─────────────────────────────────────────┘ │  │
+│ │                                             │  │
+│ │ h3: Bezorggebieden                          │  │
+│ │ ┌─────────────────────────────────────────┐ │  │
+│ │ │ [6811 x] [6812 x] [6813 x] ...         │ │  │
+│ │ │ [__________] [Toevoegen]                │ │  │
+│ │ │                        [Opslaan]        │ │  │
+│ │ └─────────────────────────────────────────┘ │  │
+│ └─────────────────────────────────────────────┘  │
+│                                                  │
+│ ┌─── Card: Huissen ───────────────────────────┐  │
+│ │ (same structure as Arnhem)                  │  │
+│ └─────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────┘
+```
 
-6. **Responsive sidebar**: Full sidebar on desktop (md+), hamburger-toggled overlay on mobile. Content area takes remaining width.
+## Acceptance Criteria Mapping
 
-7. **Dutch date handling**: Dashboard stats use Amsterdam timezone for "today" calculation, matching the reservation API pattern.
+| Criterion | Implementation |
+|-----------|---------------|
+| Settings page shows both locations as separate sections | Page fetches all locations, renders a Card per location |
+| Editable fields for name, address, phone, email with save | `LocationForm` with controlled inputs and Supabase update |
+| Changes persist to Supabase locations table | Direct `supabase.from('locations').update(...)` — RLS allows authenticated updates |
+| Opening hours editor shows all 7 days | `OpeningHoursEditor` renders all 7 Dutch day names with time inputs |
+| Open/close time inputs | Native `<input type="time">` per day |
+| Supports marking a day as closed | Checkbox toggle per day: `closed: true` in JSONB, disables time inputs |
+| Saves as JSONB to locations table | Saves full `opening_hours` object via Supabase update |
+| Delivery zones: add/remove postal codes or area names | `DeliveryZoneEditor` with removable badge chips + text input to add |
+| Saved as JSONB array to delivery_zones field | Saves string array via Supabase update |
+
+## Validation Rules
+
+1. **LocationForm:** name, address, phone required. Email optional but validated if provided.
+2. **OpeningHoursEditor:** close time must be after open time for non-closed days. Inline error per row.
+3. **DeliveryZoneEditor:** prevent empty strings and duplicate entries when adding.
 
 ## Implementation Order
 
-1. `src/app/admin/layout.tsx` — admin shell (needed by all pages)
-2. `src/components/admin/StatCard.tsx` — dashboard building block
-3. `src/app/admin/page.tsx` — dashboard overview
-4. `src/components/admin/CategoryForm.tsx` — category form (simpler, test first)
-5. `src/components/admin/MenuItemForm.tsx` — menu item form
-6. `src/app/admin/menu/page.tsx` — main CRUD page
-7. `src/components/admin/index.ts` — barrel export
-8. Unit tests (all `__tests__/` files)
-9. `e2e/admin-menu.spec.ts` — E2E test
+1. Create `src/components/admin/LocationForm.tsx`
+2. Create `src/components/admin/OpeningHoursEditor.tsx`
+3. Create `src/components/admin/DeliveryZoneEditor.tsx`
+4. Update `src/components/admin/index.ts` with new exports
+5. Create `src/app/admin/settings/page.tsx` — compose components with data fetching
+6. Run `npm run build` to verify no TypeScript/build errors
+7. Manual testing against dev server
 
-## Acceptance Criteria
+## Test Scenarios (manual/E2E — no unit tests per spec)
 
-- [ ] Admin layout renders with sidebar navigation and responsive hamburger
-- [ ] Sidebar links to Dashboard, Menu, Bestellingen, Reserveringen, Instellingen
-- [ ] Active sidebar link highlighted in fiamma
-- [ ] Logout button works (signs out, redirects to login)
-- [ ] Dashboard shows 4 stat cards with today's data
-- [ ] Menu management lists ALL items grouped by category (including unavailable)
-- [ ] Add new menu item via modal form works end-to-end
-- [ ] Edit existing menu item via modal form works end-to-end
-- [ ] Toggle item availability works with optimistic update
-- [ ] Delete (soft-delete) item works with confirmation
-- [ ] Category management: list all, add new, edit existing
-- [ ] Form validation: required fields, price > 0, name non-empty
-- [ ] Search/filter items by name
-- [ ] Tab switching between Items and Categories
-- [ ] Design tokens applied: fiamma accent, oven text/sidebar, crema background, headline font, warm shadows
-- [ ] All unit tests pass
-- [ ] E2E test passes
-- [ ] No TypeScript errors on `npm run build`
+1. Page loads and displays both Arnhem and Huissen locations with current data
+2. Edit Arnhem address, save — database updated, success feedback shown
+3. Change Monday close time to 23:00, save — opening_hours JSONB updated correctly
+4. Toggle Wednesday to closed — JSONB has `"woensdag": { "open": "...", "close": "...", "closed": true }`
+5. Add postal code "6828" to delivery zones, save — delivery_zones array includes "6828"
+6. Remove a postal code from zones, save — no longer in delivery_zones array
+7. Try to save with close time before open time — validation error shown, save blocked
+
+## Scope Boundaries
+
+**IN scope:** Location detail editing, opening hours editor, delivery zone management
+**OUT of scope:** Creating new locations, deleting locations, image/logo management, email notification settings, database schema modifications
+**Must NOT modify:** `src/app/admin/menu/*`, `src/app/admin/orders/*`, `supabase/migrations/*`
