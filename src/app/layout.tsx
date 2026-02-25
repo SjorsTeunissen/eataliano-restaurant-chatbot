@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Oswald, Montserrat } from "next/font/google";
+import { ChatWidget } from "@/components/chat";
 import "./globals.css";
 
 const oswald = Oswald({
@@ -31,7 +32,7 @@ export default function RootLayout({
     <html lang="nl" className={`${oswald.variable} ${montserrat.variable}`}>
       <body>
         {children}
-        {/* ChatToggle: added by SER-65 (Chatbot UI) */}
+        <ChatWidget />
       </body>
     </html>
   );
