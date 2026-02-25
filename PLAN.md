@@ -1,128 +1,179 @@
-# PLAN: SER-59 — [Backend] Reservation API
+# SER-61: Home Page — Implementation Plan
 
-## Issue Summary
+## Overview
 
-Build REST API endpoints for the reservation system: public creation with validation, and admin-protected listing and status management. Validates against location opening hours, party size limits, and date constraints.
+Build the Eataliano home page with four sections: hero with restaurant intro and CTA, featured dishes from Supabase, location cards with opening hours for Arnhem and Huissen, and a "Why Eataliano" section. The page is server-rendered (RSC) using the existing public layout (Header/Footer from SER-57) and UI components (Card, Button, Badge from SER-56).
 
-## Existing Work Assessment
+## Branch & Worktree
 
-A previous session produced complete implementations for all three target files. The code is untracked (never committed or pushed). Assessment below.
+- Branch: `ser-61`
+- Worktree: `.worktrees/ser-61`
+- Base: `main` (includes SER-55 database schema, SER-56 UI components, SER-57 layout)
 
-### Files Found in Worktree
+## Existing Infrastructure (Already Merged)
 
-| File | Status | Assessment |
-|------|--------|------------|
-| `src/app/api/reservations/route.ts` | Complete | POST + GET handlers implemented with full validation |
-| `src/app/api/reservations/[id]/route.ts` | Complete | PATCH handler for admin status updates |
-| `src/app/api/reservations/__tests__/route.test.ts` | Complete | 13 test cases covering all endpoints |
-| `vitest.config.ts` | Complete | Vitest configuration with `@/` alias resolution |
-
-### Quality Assessment of Existing Code
-
-**route.ts (POST /api/reservations) - Good, minor issues:**
-- Required field validation (location_id, customer_name, customer_phone, party_size, reservation_date, reservation_time)
-- Party size validated: integer between 1-20
-- Date format validated (YYYY-MM-DD), time format validated (HH:MM)
-- Date-not-in-past validation using Amsterdam timezone
-- Location existence and is_active checked via admin client
-- Opening hours validation: Dutch day names, time range check
-- created_via validation (chatbot/admin, defaults to chatbot)
-- Uses `createAdminClient()` for inserts (bypasses RLS for public reservation creation)
-- **Issue**: Returns 400 for validation errors; acceptance criteria specifies 422 for validation failures
-
-**route.ts (GET /api/reservations) - Good:**
-- Auth check via `createClient()` + `getUser()`
-- Supports filters: location_id, date_from, date_to, status
-- Orders by date then time ascending
-
-**[id]/route.ts (PATCH) - Good:**
-- Auth check via `createClient()` + `getUser()`
-- Validates status is one of: confirmed, cancelled, completed, no_show
-- Checks reservation exists before updating (returns 404 if not found)
-
-**Tests (route.test.ts) - Good coverage:**
-- POST: valid creation, missing fields, party size too small/large, past date, location not found, outside opening hours, invalid date format, invalid time format, default created_via
-- GET: unauthorized (401), returns reservations when authenticated, applies filters
-- PATCH: unauthorized (401), updates status, invalid status, missing status, reservation not found (404)
-
-## Required Changes
-
-### 1. Fix HTTP status codes for validation errors
-
-The acceptance criteria states: "returns 422 with specific error messages for each validation failure." The current code returns 400 for all validation errors. Change validation-specific responses to 422 (Unprocessable Entity).
-
-**In `src/app/api/reservations/route.ts`**, update these responses from `status: 400` to `status: 422`:
-- Missing required fields (line 80)
-- Party size out of range (line 93)
-- Invalid date format (line 101)
-- Invalid time format (line 108)
-- Date in the past (line 117)
-- Invalid created_via (line 132)
-- Location not found (line 148) -- keep as 400 (bad reference, not validation)
-- Location not active (line 154) -- keep as 400 (business rule, not input validation)
-- Closed on day (line 173) -- 422 (time/schedule validation)
-- Time outside opening hours (line 182) -- 422 (time/schedule validation)
-
-### 2. Update tests to match 422 status codes
-
-**In `src/app/api/reservations/__tests__/route.test.ts`**, update `expect(res.status).toBe(400)` to `expect(res.status).toBe(422)` for the validation test cases:
-- "returns 422 when required fields are missing" (was 400)
-- "returns 422 when party_size is out of range (too small)" (was 400)
-- "returns 422 when party_size is out of range (too large)" (was 400)
-- "returns 422 when reservation_date is in the past" (was 400)
-- "returns 422 when time is outside opening hours" (was 400)
-- "returns 422 for invalid date format" (was 400)
-- "returns 422 for invalid time format" (was 400)
-
-Keep `400` for: location not found, location not active (these are 400 bad request, not 422 validation).
-
-### 3. Verify vitest dependency and test script
-
-The worktree's `package.json` has `vitest: "^2"` in devDependencies but no `"test"` script. The resolver must:
-- Add `"test": "vitest run"` to `package.json` scripts (if not already present)
-- Ensure `vitest.config.ts` is committed
-- Run `npx vitest run src/app/api/reservations/__tests__/route.test.ts` to verify all tests pass
+- **Public layout**: `src/app/(public)/layout.tsx` — wraps children with Header + Footer
+- **UI components**: `src/components/ui/` — Button (primary/secondary/ghost), Card (white bg, border, shadow), Badge (default/success/warning/error)
+- **Design tokens**: `src/app/globals.css` — Tailwind v4 `@theme` directive + CSS custom properties for colors (oven, fiamma, basilico, crema), fonts (Oswald headlines, Montserrat body), spacing scale, shadows
+- **Tailwind config**: `tailwind.config.ts` — extends theme with oven/fiamma/basilico/crema colors, headline/body fonts, warm shadows
+- **Supabase server client**: `src/lib/supabase/server.ts` — `createClient()` for RSC data fetching
+- **Database**: locations table (Arnhem/Huissen seed data with opening_hours JSONB using Dutch day names), menu_items table (with `is_featured` boolean, `is_available` boolean)
+- **Current placeholder**: `src/app/(public)/page.tsx` — simple centered "Welkom bij Eataliano" text to be replaced
 
 ## Files to Create/Modify
 
-| File | Action | Notes |
-|------|--------|-------|
-| `src/app/api/reservations/route.ts` | Modify | Change validation error status codes from 400 to 422 |
-| `src/app/api/reservations/[id]/route.ts` | Keep as-is | No changes needed |
-| `src/app/api/reservations/__tests__/route.test.ts` | Modify | Update expected status codes from 400 to 422 for validation tests |
-| `vitest.config.ts` | Keep as-is | Already correct |
-| `package.json` | Modify | Add `"test": "vitest run"` script if missing |
+### 1. `src/app/(public)/page.tsx` (MODIFY)
+Replace the placeholder with the full home page. Server component that:
+- Fetches featured menu items from Supabase (`is_featured = true, is_available = true`)
+- Fetches active locations from Supabase (`is_active = true`)
+- Renders four sections in order: HeroSection, FeaturedDishes, LocationCards, WhyEataliano
+- Exports metadata for SEO
 
-## Implementation Steps
+### 2. `src/components/home/HeroSection.tsx` (CREATE)
+Server component (no "use client") for the hero area:
+- Full-width section with bg-oven (dark charcoal background)
+- Restaurant name "Eataliano" in large Oswald headline (text-crema)
+- Tagline: "Authentieke Italiaanse keuken in Arnhem & Huissen"
+- Two CTA buttons using existing Button component + Next.js Link:
+  - "Bekijk Menu" (primary variant, links to /menu)
+  - "Reserveer een Tafel" (secondary variant with text-crema styling, links to /contact)
+- Generous vertical padding for visual impact (py-24 md:py-32)
 
-1. **Update validation status codes in route.ts**: Change 9 validation error responses from `{ status: 400 }` to `{ status: 422 }`
-2. **Update test expectations**: Change 7 test assertions from `.toBe(400)` to `.toBe(422)` for validation test cases
-3. **Add test script to package.json**: Add `"test": "vitest run"` if not present
-4. **Run tests**: Execute `npx vitest run` and verify all 13 tests pass
-5. **Stage and commit all files**
+### 3. `src/components/home/FeaturedDishes.tsx` (CREATE)
+Server component that receives featured menu items as props:
+- Section heading "Onze Favorieten" with Oswald font
+- Responsive grid: 1 col mobile, 2 cols md, 3 cols lg
+- Each dish rendered in an existing Card component showing:
+  - Dish name (font-headline)
+  - Description (truncated to 2 lines with line-clamp)
+  - Price formatted as Euro (e.g., "EUR 12,50")
+  - Category name as a Badge
+- CTA link "Bekijk het volledige menu" to /menu at the bottom
+- If no featured items exist, the entire section is not rendered (returns null)
 
-## Acceptance Criteria Checklist
+### 4. `src/components/home/LocationCards.tsx` (CREATE)
+Server component that receives locations as props:
+- Section heading "Onze Locaties"
+- Two side-by-side Card components (stacked on mobile: grid-cols-1 md:grid-cols-2)
+- Each card shows:
+  - Location name as heading (font-headline, text-fiamma)
+  - Address with MapPin icon from lucide-react
+  - Phone with Phone icon from lucide-react
+  - Today's opening hours with Clock icon, parsed from JSONB
+- Opening hours logic: map JS `getDay()` to Dutch day names (zondag=0, maandag=1, ..., zaterdag=6) and display "Vandaag: 16:00 - 22:00" or "Gesloten" if no entry
 
-- [x] POST /api/reservations validates: date not in past, party_size 1-20, time within opening hours, required fields present
-- [ ] Returns 422 with specific error messages for validation failures (currently returns 400, needs fix)
-- [x] GET /api/reservations returns filtered by date/location (admin only)
-- [x] PATCH /api/reservations/[id] updates status to confirmed/cancelled/completed/no_show (admin only)
-- [x] Integration tests cover creation, all validations, admin operations (need status code update)
+### 5. `src/components/home/WhyEataliano.tsx` (CREATE)
+Server component for the value proposition section:
+- Section heading "Waarom Eataliano?"
+- Grid of 3 items (1 col mobile, 3 cols lg) each containing:
+  1. ChefHat icon + "Verse Ingredienten" + short description about quality
+  2. MapPin icon + "Twee Locaties" + description about convenience (Arnhem & Huissen)
+  3. ShoppingBag icon + "Online Bestellen" + description about easy online ordering
+- Each item centered with icon in fiamma color, heading in Oswald, description in Montserrat
+
+### 6. `src/components/home/index.ts` (CREATE)
+Barrel export file for all home section components.
+
+### 7. `playwright.config.ts` (CREATE)
+Playwright configuration:
+- Base URL: `http://localhost:3000`
+- Web server command: `npm run dev`
+- Single project: chromium
+- Test directory: `e2e/`
+
+### 8. `e2e/home.spec.ts` (CREATE)
+Playwright E2E test:
+- Navigate to `/`
+- Verify hero section visible with "Eataliano" heading and CTA buttons
+- Verify "Bekijk Menu" link points to /menu
+- Verify "Reserveer een Tafel" link points to /contact
+- Verify location cards section renders with "Arnhem" and "Huissen" text
+- Verify "Waarom Eataliano?" section renders
+- Verify page title/metadata
+
+## Data Fetching Strategy
+
+All data fetching happens server-side in the page component:
+
+```typescript
+const supabase = await createClient();
+
+// Featured dishes (limit 6 for homepage)
+const { data: featuredItems } = await supabase
+  .from("menu_items")
+  .select("*, category:menu_categories(name)")
+  .eq("is_featured", true)
+  .eq("is_available", true)
+  .order("sort_order", { ascending: true })
+  .limit(6);
+
+// Active locations
+const { data: locations } = await supabase
+  .from("locations")
+  .select("*")
+  .eq("is_active", true)
+  .order("name", { ascending: true });
+```
+
+Data is passed to section components as props. No client-side fetching needed.
+
+## Opening Hours Helper
+
+Dutch day name mapping for `opening_hours` JSONB lookup:
+
+```typescript
+const DUTCH_DAYS = [
+  "zondag", "maandag", "dinsdag", "woensdag",
+  "donderdag", "vrijdag", "zaterdag",
+] as const;
+
+function getTodayHours(openingHours: Record<string, { open: string; close: string }>) {
+  const dayName = DUTCH_DAYS[new Date().getDay()];
+  return openingHours[dayName] ?? null;
+}
+```
+
+## Design Decisions
+
+- **All Server Components**: No "use client" directive on any home page component — no interactivity needed, better performance
+- **Link wrapping buttons**: CTAs use Next.js `<Link>` wrapping `<Button>` for SPA navigation
+- **Existing Card component**: Reuse `src/components/ui/Card.tsx` for featured dishes and location cards
+- **Existing Button component**: Reuse primary and secondary variants for hero CTAs
+- **Responsive grid**: Tailwind responsive breakpoints matching the max-w-7xl container from Header/Footer
+- **Section spacing**: Consistent `py-16 md:py-24` vertical rhythm between sections
+- **Container pattern**: `mx-auto max-w-7xl px-4 md:px-6` matching Header/Footer pattern
+- **No images**: Menu items may lack image_url; cards focus on text content with price prominent
+- **Dutch language**: All user-facing text in Dutch
+- **Euro formatting**: Prices displayed with EUR symbol, comma for decimals (Dutch convention)
+
+## Implementation Order
+
+1. Create `src/components/home/HeroSection.tsx`
+2. Create `src/components/home/FeaturedDishes.tsx`
+3. Create `src/components/home/LocationCards.tsx`
+4. Create `src/components/home/WhyEataliano.tsx`
+5. Create `src/components/home/index.ts`
+6. Modify `src/app/(public)/page.tsx` — compose sections with Supabase data
+7. Create `playwright.config.ts`
+8. Create `e2e/home.spec.ts`
+9. Run `npm run build` to verify no TypeScript/build errors
+10. Run E2E tests
+
+## Acceptance Criteria
+
+- [ ] Page renders with real data from Supabase (featured items, locations)
+- [ ] Hero section displays with headline, tagline, and two CTA buttons
+- [ ] Featured dishes section shows menu items with name, description, price, category badge
+- [ ] Featured dishes section handles empty data gracefully (renders nothing)
+- [ ] Location cards show Arnhem and Huissen with address, phone, and today's hours
+- [ ] "Why Eataliano" section shows three value propositions
+- [ ] Responsive layout works at mobile, tablet, and desktop breakpoints
+- [ ] Design system tokens applied throughout (colors, fonts, spacing, shadows)
+- [ ] CTA buttons navigate correctly to /menu and /contact
+- [ ] E2E tests pass
+- [ ] No TypeScript errors on `npm run build`
 
 ## Scope Boundaries
 
-**MUST modify:** `src/app/api/reservations/route.ts`, `src/app/api/reservations/[id]/route.ts`, `src/app/api/reservations/__tests__/route.test.ts`
-**MUST NOT modify:** Files outside `src/app/api/reservations/`
-
-## Dependencies
-
-- `@/lib/supabase/server` (createClient) -- exists on main branch
-- `@/lib/supabase/admin` (createAdminClient) -- exists on main branch
-- `vitest` -- in devDependencies
-- Database: `reservations` table (migration 003), `locations` table (migration 001), RLS policies (migration 007)
-
-## Risk Notes
-
-- The `vitest.config.ts` file is at the project root, which is fine for the resolver but note it also exists in the SER-58 worktree -- potential merge conflict if both add it. The content is identical so auto-merge should handle it.
-- The POST handler uses `createAdminClient()` (service role key) to bypass RLS for public inserts. This is correct per the RLS design: `reservations_insert_public` policy exists but the admin client is used for the location lookup + insert atomicity.
-- Opening hours use Dutch day names (maandag, dinsdag, etc.) matching the seed data format.
+**IN scope**: Home page sections, home section components, Playwright config + E2E test
+**OUT of scope**: Header/Footer changes (SER-57), UI component changes (SER-56), database changes (SER-55), menu page (SER-62)
