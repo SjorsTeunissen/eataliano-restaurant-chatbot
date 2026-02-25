@@ -39,6 +39,26 @@ describe("ChatSidebar", () => {
     ).toBeInTheDocument();
   });
 
+  it("closes when Escape key is pressed while open", async () => {
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+
+    render(<ChatSidebar isOpen={true} onClose={onClose} />);
+
+    await user.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("does not close on Escape key when sidebar is closed", async () => {
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+
+    render(<ChatSidebar isOpen={false} onClose={onClose} />);
+
+    await user.keyboard("{Escape}");
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it("close button calls onClose", async () => {
     const onClose = vi.fn();
     const user = userEvent.setup();
