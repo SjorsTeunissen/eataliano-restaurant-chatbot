@@ -91,4 +91,48 @@ test.describe("Menu page", () => {
       await expect(badges.first()).toBeVisible();
     }
   });
+
+  test("filtered view hides items from other categories", async ({ page }) => {
+    const filterNav = page.getByRole("navigation", {
+      name: "Categoriefilter",
+    });
+
+    // Get all category buttons (excluding "Alles")
+    const categoryButtons = filterNav.getByRole("button").filter({
+      hasNot: page.getByText("Alles"),
+    });
+
+    const buttonCount = await categoryButtons.count();
+    if (buttonCount < 2) {
+      test.skip();
+      return;
+    }
+
+    // Get the names of the first two categories
+    const firstCategoryName = await categoryButtons.nth(0).textContent();
+    const secondCategoryName = await categoryButtons.nth(1).textContent();
+
+    // Click the first category filter
+    await categoryButtons.nth(0).click();
+
+    // The first category heading should be visible
+    if (firstCategoryName) {
+      await expect(
+        page.getByRole("heading", { name: firstCategoryName })
+      ).toBeVisible();
+    }
+
+    // The second category heading should NOT be visible
+    if (secondCategoryName) {
+      await expect(
+        page.getByRole("heading", { name: secondCategoryName })
+      ).not.toBeVisible();
+    }
+  });
+
+  test("menu item cards show price", async ({ page }) => {
+    // Look for a price formatted in EUR (e.g. "€ 12,50" or "€12,50")
+    const pricePattern = page.locator("text=/€\\s?\\d+[,.]\\d{2}/");
+    await expect(pricePattern.first()).toBeVisible();
+  });
 });

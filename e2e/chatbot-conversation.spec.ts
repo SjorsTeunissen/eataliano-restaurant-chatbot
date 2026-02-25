@@ -60,3 +60,48 @@ test.describe("Chatbot sidebar", () => {
     await expect(sidebar).toHaveCSS("transform", "none");
   });
 });
+
+test.describe("Chatbot AI conversation", () => {
+  test.skip(
+    !process.env.OPENAI_API_KEY,
+    "Requires OPENAI_API_KEY to be set"
+  );
+
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "Open chat" }).click();
+    await expect(
+      page.getByRole("complementary", { name: "Chatpaneel" })
+    ).toHaveCSS("transform", "none");
+  });
+
+  test("user can send a message and receive a response", async ({ page }) => {
+    const input = page.getByPlaceholder("Stel een vraag...");
+    await input.fill("Hallo");
+    await page.getByRole("button", { name: "Verstuur bericht" }).click();
+
+    // User message should appear
+    await expect(page.getByTestId("chat-message-user")).toBeVisible();
+
+    // Wait for assistant response (generous timeout for OpenAI)
+    await expect(page.getByTestId("chat-message-assistant")).toBeVisible({
+      timeout: 15000,
+    });
+  });
+
+  test("shows loading indicator while waiting for response", async ({
+    page,
+  }) => {
+    const input = page.getByPlaceholder("Stel een vraag...");
+    await input.fill("Wat zijn jullie openingstijden?");
+    await page.getByRole("button", { name: "Verstuur bericht" }).click();
+
+    // Typing indicator should appear while waiting
+    await expect(page.getByTestId("typing-indicator")).toBeVisible();
+
+    // Eventually the assistant response should appear
+    await expect(page.getByTestId("chat-message-assistant")).toBeVisible({
+      timeout: 15000,
+    });
+  });
+});
