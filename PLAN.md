@@ -1,179 +1,259 @@
-# SER-61: Home Page — Implementation Plan
+# SER-67: Admin Dashboard & Menu Management — Implementation Plan
 
-## Overview
+## Summary
 
-Build the Eataliano home page with four sections: hero with restaurant intro and CTA, featured dishes from Supabase, location cards with opening hours for Arnhem and Huissen, and a "Why Eataliano" section. The page is server-rendered (RSC) using the existing public layout (Header/Footer from SER-57) and UI components (Card, Button, Badge from SER-56).
+Build the admin dashboard overview page (today's stats) and the full menu management interface (list items by category, add/edit/delete items, manage categories, toggle availability). This maps to Task 14 in the technical spec.
 
 ## Branch & Worktree
 
-- Branch: `ser-61`
-- Worktree: `.worktrees/ser-61`
-- Base: `main` (includes SER-55 database schema, SER-56 UI components, SER-57 layout)
+- Branch: `ser-67`
+- Worktree: `.worktrees/ser-67`
+- Base: `main`
 
-## Existing Infrastructure (Already Merged)
+## Dependencies (all merged)
 
-- **Public layout**: `src/app/(public)/layout.tsx` — wraps children with Header + Footer
-- **UI components**: `src/components/ui/` — Button (primary/secondary/ghost), Card (white bg, border, shadow), Badge (default/success/warning/error)
-- **Design tokens**: `src/app/globals.css` — Tailwind v4 `@theme` directive + CSS custom properties for colors (oven, fiamma, basilico, crema), fonts (Oswald headlines, Montserrat body), spacing scale, shadows
-- **Tailwind config**: `tailwind.config.ts` — extends theme with oven/fiamma/basilico/crema colors, headline/body fonts, warm shadows
-- **Supabase server client**: `src/lib/supabase/server.ts` — `createClient()` for RSC data fetching
-- **Database**: locations table (Arnhem/Huissen seed data with opening_hours JSONB using Dutch day names), menu_items table (with `is_featured` boolean, `is_available` boolean)
-- **Current placeholder**: `src/app/(public)/page.tsx` — simple centered "Welkom bij Eataliano" text to be replaced
+- **SER-56**: UI Components — `Button`, `Input`, `Card`, `Badge`, `Modal` at `src/components/ui/`
+- **SER-58**: Menu API CRUD — endpoints at `src/app/api/menu/` (items + categories CRUD)
+- **SER-66**: Admin Auth — middleware at `src/middleware.ts`, login at `src/app/auth/login/`, Supabase session, logout at `POST /api/auth/logout`
 
-## Files to Create/Modify
+## Existing Patterns to Follow
 
-### 1. `src/app/(public)/page.tsx` (MODIFY)
-Replace the placeholder with the full home page. Server component that:
-- Fetches featured menu items from Supabase (`is_featured = true, is_available = true`)
-- Fetches active locations from Supabase (`is_active = true`)
-- Renders four sections in order: HeroSection, FeaturedDishes, LocationCards, WhyEataliano
-- Exports metadata for SEO
+- **Language**: Dutch for user-facing text (e.g. "Inloggen", "E-mailadres")
+- **Client components**: `"use client"` directive, `useState` for local state, `createClient()` from `@/lib/supabase/client` for browser-side Supabase
+- **API calls**: `fetch("/api/...")` from client components for mutations; Supabase browser client for direct queries
+- **Design tokens**: Tailwind v4 `@theme` tokens — `bg-fiamma`, `text-oven`, `text-crema`, `font-headline`, `font-body`, `rounded-base`, `shadow-warm-md`, `p-space-7`
+- **UI components**: Import from `@/components/ui` — `Button` (primary/secondary/ghost, sm/md/lg, isLoading), `Input` (label, error), `Card`, `Badge` (default/success/warning/error), `Modal` (isOpen, onClose, title)
+- **Auth pattern in client**: `createClient()` from `@/lib/supabase/client` + `supabase.auth.getUser()`
+- **Test pattern**: Vitest + RTL, `import { describe, it, expect, vi } from "vitest"`, co-located `__tests__/` directories, `@testing-library/react` + `@testing-library/user-event`
+- **Container pattern**: `mx-auto max-w-7xl px-4 md:px-6`
+- **Icons**: `lucide-react` (e.g. `Menu`, `X`, `MapPin`, `Phone`, `Clock`)
 
-### 2. `src/components/home/HeroSection.tsx` (CREATE)
-Server component (no "use client") for the hero area:
-- Full-width section with bg-oven (dark charcoal background)
-- Restaurant name "Eataliano" in large Oswald headline (text-crema)
-- Tagline: "Authentieke Italiaanse keuken in Arnhem & Huissen"
-- Two CTA buttons using existing Button component + Next.js Link:
-  - "Bekijk Menu" (primary variant, links to /menu)
-  - "Reserveer een Tafel" (secondary variant with text-crema styling, links to /contact)
-- Generous vertical padding for visual impact (py-24 md:py-32)
+## Files to Create
 
-### 3. `src/components/home/FeaturedDishes.tsx` (CREATE)
-Server component that receives featured menu items as props:
-- Section heading "Onze Favorieten" with Oswald font
-- Responsive grid: 1 col mobile, 2 cols md, 3 cols lg
-- Each dish rendered in an existing Card component showing:
-  - Dish name (font-headline)
-  - Description (truncated to 2 lines with line-clamp)
-  - Price formatted as Euro (e.g., "EUR 12,50")
-  - Category name as a Badge
-- CTA link "Bekijk het volledige menu" to /menu at the bottom
-- If no featured items exist, the entire section is not rendered (returns null)
+### 1. `src/app/admin/layout.tsx` — Admin Layout with Sidebar Navigation
 
-### 4. `src/components/home/LocationCards.tsx` (CREATE)
-Server component that receives locations as props:
-- Section heading "Onze Locaties"
-- Two side-by-side Card components (stacked on mobile: grid-cols-1 md:grid-cols-2)
-- Each card shows:
-  - Location name as heading (font-headline, text-fiamma)
-  - Address with MapPin icon from lucide-react
-  - Phone with Phone icon from lucide-react
-  - Today's opening hours with Clock icon, parsed from JSONB
-- Opening hours logic: map JS `getDay()` to Dutch day names (zondag=0, maandag=1, ..., zaterdag=6) and display "Vandaag: 16:00 - 22:00" or "Gesloten" if no entry
+**Purpose**: Admin shell wrapping all `/admin/*` pages with sidebar nav and top bar.
 
-### 5. `src/components/home/WhyEataliano.tsx` (CREATE)
-Server component for the value proposition section:
-- Section heading "Waarom Eataliano?"
-- Grid of 3 items (1 col mobile, 3 cols lg) each containing:
-  1. ChefHat icon + "Verse Ingredienten" + short description about quality
-  2. MapPin icon + "Twee Locaties" + description about convenience (Arnhem & Huissen)
-  3. ShoppingBag icon + "Online Bestellen" + description about easy online ordering
-- Each item centered with icon in fiamma color, heading in Oswald, description in Montserrat
+**Details**:
+- Client component (`"use client"`) for navigation state + logout handling
+- **Sidebar** (left, 256px wide):
+  - `bg-oven` dark background, full-height
+  - Logo/branding: "Eataliano Admin" in `font-headline text-crema`
+  - Nav links using `usePathname()` for active state:
+    - Dashboard (`/admin`) — `LayoutDashboard` icon
+    - Menu (`/admin/menu`) — `UtensilsCrossed` icon
+    - Bestellingen (`/admin/orders`) — `ShoppingBag` icon (future SER-68)
+    - Reserveringen (`/admin/reservations`) — `CalendarDays` icon (future SER-68)
+    - Instellingen (`/admin/settings`) — `Settings` icon (future SER-69)
+  - Active link: `bg-fiamma/20 text-fiamma`, inactive: `text-crema/70 hover:text-crema hover:bg-white/5`
+- **Top bar** (right of sidebar):
+  - Logout button (calls `POST /api/auth/logout`, then `router.push("/auth/login")`)
+  - Mobile hamburger toggle for sidebar
+- **Responsive**: sidebar hidden on mobile, toggled via hamburger; overlay on mobile
+- **Content area**: `flex-1` with `bg-crema` background, padding
 
-### 6. `src/components/home/index.ts` (CREATE)
-Barrel export file for all home section components.
+### 2. `src/components/admin/StatCard.tsx` — Dashboard Stat Card
 
-### 7. `playwright.config.ts` (CREATE)
-Playwright configuration:
-- Base URL: `http://localhost:3000`
-- Web server command: `npm run dev`
-- Single project: chromium
-- Test directory: `e2e/`
+**Purpose**: Reusable card for dashboard stats.
 
-### 8. `e2e/home.spec.ts` (CREATE)
-Playwright E2E test:
-- Navigate to `/`
-- Verify hero section visible with "Eataliano" heading and CTA buttons
-- Verify "Bekijk Menu" link points to /menu
-- Verify "Reserveer een Tafel" link points to /contact
-- Verify location cards section renders with "Arnhem" and "Huissen" text
-- Verify "Waarom Eataliano?" section renders
-- Verify page title/metadata
+**Props**: `title: string`, `value: string | number`, `subtitle?: string`, `icon: React.ReactNode`
 
-## Data Fetching Strategy
+**Details**:
+- Uses `Card` component as wrapper
+- Icon rendered at 24px in `text-fiamma`
+- Value in large `font-headline text-2xl` font
+- Title in `text-sm text-oven/60 font-body`
+- Subtitle in `text-xs text-oven/40`
 
-All data fetching happens server-side in the page component:
+### 3. `src/app/admin/page.tsx` — Dashboard Overview
 
-```typescript
-const supabase = await createClient();
+**Purpose**: Today's quick stats overview.
 
-// Featured dishes (limit 6 for homepage)
-const { data: featuredItems } = await supabase
-  .from("menu_items")
-  .select("*, category:menu_categories(name)")
-  .eq("is_featured", true)
-  .eq("is_available", true)
-  .order("sort_order", { ascending: true })
-  .limit(6);
+**Details**:
+- Client component, fetches data on mount with `useEffect`
+- Uses Supabase browser client for authenticated queries
+- Computes today's date in Amsterdam timezone for filtering
+- **4 stat cards** in responsive grid (2x2 on desktop, stacked on mobile):
+  - "Bestellingen Vandaag" — count of today's orders + total revenue formatted as EUR
+  - "Reserveringen Vandaag" — count of today's reservations
+  - "Menu Items" — count of active menu items
+  - "Categorieen" — count of active categories
+- Loading state with skeleton/placeholder while fetching
+- Quick action: "Beheer Menu" button linking to `/admin/menu`
 
-// Active locations
-const { data: locations } = await supabase
-  .from("locations")
-  .select("*")
-  .eq("is_active", true)
-  .order("name", { ascending: true });
-```
+### 4. `src/components/admin/MenuItemForm.tsx` — Menu Item Add/Edit Form
 
-Data is passed to section components as props. No client-side fetching needed.
+**Purpose**: Modal form for creating and editing menu items.
 
-## Opening Hours Helper
+**Props**: `item?: MenuItem | null` (null = create mode), `categories: Category[]`, `onSave: () => void`, `onCancel: () => void`
 
-Dutch day name mapping for `opening_hours` JSONB lookup:
+**Fields**:
+- `name` — `Input` component, required
+- `description` — `<textarea>` styled to match Input
+- `price` — `Input` type="number" step="0.01", required
+- `category_id` — `<select>` dropdown, required
+- `allergens` — `Input`, comma-separated text (parsed to string array on submit)
+- `dietary_labels` — `Input`, comma-separated text (parsed to string array)
+- `image_url` — `Input`, optional URL
+- `is_available` — checkbox
+- `is_featured` — checkbox
+- `sort_order` — `Input` type="number"
 
-```typescript
-const DUTCH_DAYS = [
-  "zondag", "maandag", "dinsdag", "woensdag",
-  "donderdag", "vrijdag", "zaterdag",
-] as const;
+**Behavior**:
+- Pre-fills fields when `item` prop provided (edit mode)
+- Client-side validation: name non-empty, price > 0, category selected
+- Submit: `POST /api/menu` (create) or `PATCH /api/menu/{id}` (update)
+- Shows `Button isLoading` during save
+- Calls `onSave()` on success for parent to refresh list
 
-function getTodayHours(openingHours: Record<string, { open: string; close: string }>) {
-  const dayName = DUTCH_DAYS[new Date().getDay()];
-  return openingHours[dayName] ?? null;
-}
-```
+### 5. `src/components/admin/CategoryForm.tsx` — Category Add/Edit Form
+
+**Purpose**: Modal form for creating and editing categories.
+
+**Props**: `category?: Category | null`, `onSave: () => void`, `onCancel: () => void`
+
+**Fields**: `name` (required), `description` (optional textarea), `sort_order` (number), `is_active` (checkbox)
+
+**Behavior**:
+- Submit: `POST /api/menu/categories` (create) or `PATCH /api/menu/categories/{id}` (update)
+- Validation: name non-empty
+
+### 6. `src/app/admin/menu/page.tsx` — Menu Management Page
+
+**Purpose**: Full CRUD interface for menu items and categories.
+
+**Details**:
+- Client component with two tabs: "Items" | "Categorieen"
+- **Items tab**:
+  - Fetch ALL items (including `is_available=false`) via Supabase browser client: `supabase.from("menu_items").select("*, category:menu_categories(*)").order("sort_order")`
+  - Fetch all categories for the filter/form dropdown
+  - Display items grouped by category in collapsible sections
+  - Each item row in a `Card`:
+    - Name (font-headline), price (formatted EUR), category `Badge`
+    - `is_available` toggle switch — optimistic update via `PATCH /api/menu/{id}`
+    - Edit button (pencil icon) — opens `Modal` with `MenuItemForm`
+    - Delete button (trash icon) — confirmation dialog, then `DELETE /api/menu/{id}`
+  - "Nieuw Item" `Button` above the list — opens `Modal` with empty `MenuItemForm`
+  - Search input at top to filter items by name
+- **Categories tab**:
+  - Fetch all categories via Supabase browser client (including `is_active=false`)
+  - Each row: name, description snippet, sort_order, `is_active` badge
+  - Edit button — opens `Modal` with `CategoryForm`
+  - "Nieuwe Categorie" `Button` — opens `Modal` with empty `CategoryForm`
+- Refresh data after any CRUD operation
+
+### 7. `src/components/admin/index.ts` — Barrel Export
+
+Export: `StatCard`, `MenuItemForm`, `CategoryForm`
+
+### 8. Unit Tests
+
+#### `src/components/admin/__tests__/StatCard.test.tsx`
+- Renders title, value, subtitle
+- Renders icon
+- Handles missing subtitle gracefully
+
+#### `src/components/admin/__tests__/MenuItemForm.test.tsx`
+- Renders all form fields
+- Shows empty fields in create mode
+- Pre-fills fields in edit mode
+- Validates required fields (name, price, category)
+- Calls onCancel when cancel button clicked
+- Shows loading state on submit
+
+#### `src/components/admin/__tests__/CategoryForm.test.tsx`
+- Renders form fields
+- Pre-fills in edit mode
+- Validates name required
+- Calls onCancel
+
+#### `src/app/admin/__tests__/page.test.tsx`
+- Renders dashboard heading
+- Renders 4 stat cards
+- Mocks Supabase client to return test data
+
+#### `src/app/admin/menu/__tests__/page.test.tsx`
+- Renders menu management heading
+- Shows items tab by default
+- Switches to categories tab
+- Renders "Nieuw Item" button
+- Mocks Supabase client to return test items and categories
+
+### 9. E2E Test: `e2e/admin-menu.spec.ts`
+
+**Scenarios**:
+1. Unauthenticated user visiting `/admin` is redirected to `/auth/login`
+2. Admin logs in and sees dashboard with stat cards
+3. Admin navigates to `/admin/menu` via sidebar
+4. Admin sees menu items listed
+5. Admin clicks "Nieuw Item" and sees the form modal
+6. Admin fills form and creates a new item
+7. Admin edits an existing item
+8. Admin toggles item availability
+9. Admin switches to categories tab and sees categories
+
+## API Surface (all existing, no modifications)
+
+| Method | Endpoint | Auth | Purpose |
+|--------|----------|------|---------|
+| GET | `/api/menu` | Public | List active items (used for stats count) |
+| POST | `/api/menu` | Admin | Create menu item |
+| PATCH | `/api/menu/[id]` | Admin | Update menu item |
+| DELETE | `/api/menu/[id]` | Admin | Soft-delete item (`is_available=false`) |
+| GET | `/api/menu/categories` | Public | List active categories |
+| POST | `/api/menu/categories` | Admin | Create category |
+| PATCH | `/api/menu/categories/[id]` | Admin | Update category |
+| GET | `/api/orders` | Admin | List orders (filtered by date for stats) |
+| GET | `/api/reservations` | Admin | List reservations (filtered by date for stats) |
+| POST | `/api/auth/logout` | Any | Sign out and redirect |
+
+**Key note on admin menu listing**: The public `GET /api/menu` only returns `is_available=true` items. For the admin menu page, we query Supabase directly from the browser client (authenticated) to get ALL items including unavailable ones. This avoids modifying the public API.
 
 ## Design Decisions
 
-- **All Server Components**: No "use client" directive on any home page component — no interactivity needed, better performance
-- **Link wrapping buttons**: CTAs use Next.js `<Link>` wrapping `<Button>` for SPA navigation
-- **Existing Card component**: Reuse `src/components/ui/Card.tsx` for featured dishes and location cards
-- **Existing Button component**: Reuse primary and secondary variants for hero CTAs
-- **Responsive grid**: Tailwind responsive breakpoints matching the max-w-7xl container from Header/Footer
-- **Section spacing**: Consistent `py-16 md:py-24` vertical rhythm between sections
-- **Container pattern**: `mx-auto max-w-7xl px-4 md:px-6` matching Header/Footer pattern
-- **No images**: Menu items may lack image_url; cards focus on text content with price prominent
-- **Dutch language**: All user-facing text in Dutch
-- **Euro formatting**: Prices displayed with EUR symbol, comma for decimals (Dutch convention)
+1. **Direct Supabase browser client for admin queries**: The admin menu page needs all items including unavailable ones. Rather than adding query params to the public API, we use the authenticated Supabase browser client directly. The admin is already authenticated via Supabase Auth.
+
+2. **Tab-based menu management**: Items and categories on the same page with tab switching. Keeps navigation minimal and provides the "full menu management interface" in one view.
+
+3. **Modal forms for CRUD**: Using the existing `Modal` component for add/edit forms. Users stay on the same page, reducing context switching.
+
+4. **Optimistic availability toggle**: When toggling `is_available`, update the UI immediately, then call `PATCH /api/menu/{id}` in the background. Revert on error with a toast-style error message.
+
+5. **Sidebar navigation pattern**: Dark sidebar (`bg-oven`) with light text (`text-crema`), active state uses `text-fiamma`. This is a standard admin dashboard pattern that clearly separates the admin area from the public site.
+
+6. **Responsive sidebar**: Full sidebar on desktop (md+), hamburger-toggled overlay on mobile. Content area takes remaining width.
+
+7. **Dutch date handling**: Dashboard stats use Amsterdam timezone for "today" calculation, matching the reservation API pattern.
 
 ## Implementation Order
 
-1. Create `src/components/home/HeroSection.tsx`
-2. Create `src/components/home/FeaturedDishes.tsx`
-3. Create `src/components/home/LocationCards.tsx`
-4. Create `src/components/home/WhyEataliano.tsx`
-5. Create `src/components/home/index.ts`
-6. Modify `src/app/(public)/page.tsx` — compose sections with Supabase data
-7. Create `playwright.config.ts`
-8. Create `e2e/home.spec.ts`
-9. Run `npm run build` to verify no TypeScript/build errors
-10. Run E2E tests
+1. `src/app/admin/layout.tsx` — admin shell (needed by all pages)
+2. `src/components/admin/StatCard.tsx` — dashboard building block
+3. `src/app/admin/page.tsx` — dashboard overview
+4. `src/components/admin/CategoryForm.tsx` — category form (simpler, test first)
+5. `src/components/admin/MenuItemForm.tsx` — menu item form
+6. `src/app/admin/menu/page.tsx` — main CRUD page
+7. `src/components/admin/index.ts` — barrel export
+8. Unit tests (all `__tests__/` files)
+9. `e2e/admin-menu.spec.ts` — E2E test
 
 ## Acceptance Criteria
 
-- [ ] Page renders with real data from Supabase (featured items, locations)
-- [ ] Hero section displays with headline, tagline, and two CTA buttons
-- [ ] Featured dishes section shows menu items with name, description, price, category badge
-- [ ] Featured dishes section handles empty data gracefully (renders nothing)
-- [ ] Location cards show Arnhem and Huissen with address, phone, and today's hours
-- [ ] "Why Eataliano" section shows three value propositions
-- [ ] Responsive layout works at mobile, tablet, and desktop breakpoints
-- [ ] Design system tokens applied throughout (colors, fonts, spacing, shadows)
-- [ ] CTA buttons navigate correctly to /menu and /contact
-- [ ] E2E tests pass
+- [ ] Admin layout renders with sidebar navigation and responsive hamburger
+- [ ] Sidebar links to Dashboard, Menu, Bestellingen, Reserveringen, Instellingen
+- [ ] Active sidebar link highlighted in fiamma
+- [ ] Logout button works (signs out, redirects to login)
+- [ ] Dashboard shows 4 stat cards with today's data
+- [ ] Menu management lists ALL items grouped by category (including unavailable)
+- [ ] Add new menu item via modal form works end-to-end
+- [ ] Edit existing menu item via modal form works end-to-end
+- [ ] Toggle item availability works with optimistic update
+- [ ] Delete (soft-delete) item works with confirmation
+- [ ] Category management: list all, add new, edit existing
+- [ ] Form validation: required fields, price > 0, name non-empty
+- [ ] Search/filter items by name
+- [ ] Tab switching between Items and Categories
+- [ ] Design tokens applied: fiamma accent, oven text/sidebar, crema background, headline font, warm shadows
+- [ ] All unit tests pass
+- [ ] E2E test passes
 - [ ] No TypeScript errors on `npm run build`
-
-## Scope Boundaries
-
-**IN scope**: Home page sections, home section components, Playwright config + E2E test
-**OUT of scope**: Header/Footer changes (SER-57), UI component changes (SER-56), database changes (SER-55), menu page (SER-62)
